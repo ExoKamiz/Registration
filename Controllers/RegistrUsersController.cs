@@ -20,33 +20,52 @@ namespace Registration.Controllers
     [ApiController]
     public class RegistrUsersController : ControllerBase
     {
-        public static RegistrUser user = new RegistrUser();
+        
         private readonly IConfiguration _configuration;
+        private readonly RegistrationContext _registrationContext;
 
-        public RegistrUsersController(IConfiguration configuration)
+        public RegistrUsersController(IConfiguration configuration, RegistrationContext registrationContext)
         {
             _configuration = configuration;
+            _registrationContext = registrationContext;
         }
 
         [HttpPost("register")]
-        public async Task<ActionResult<RegistrUser>> Register(UserDTO request)
+        public async Task<ActionResult<RegistrUser>> Register(UserDTOReg request)
         {
+            var currentUser = _registrationContext.RegistrUsers.FirstOrDefault(x => x.UserNickName == request.UserNickName);
+
+            if(currentUser != null)
+            {
+                return BadRequest("User is already registated");
+            }
+
             CreatePasswordHash(request.Password, out byte[] passwordHash, out byte[] passwordSalt);
 
-            user.UserName = request.UserName;
-            user.UserLastName = request.UserLastName;
-            user.PasswordHash = passwordHash;
-            user.PasswordSalt = passwordSalt;
+            var user = new RegistrUser()
+            {
+                UserNickName = request.UserNickName,
+                UserName = request.UserName,
+                UserLastName = request.UserLastName,
+                PasswordHash = passwordHash,
+                PasswordSalt = passwordSalt
+            };
 
-            return Ok(user);
+            _registrationContext.RegistrUsers.Add(user);
+            await _registrationContext.SaveChangesAsync();
+
+            return Ok(currentUser);
+
         }
 
         [HttpPost("Login")]
-        public async Task<ActionResult<string>> Login(UserDTO request)
+        public async Task<ActionResult<string>> Login(UserDTOLog request)
         {
-            if (user.UserName  != request.UserName)
+            var user = _registrationContext.RegistrUsers.FirstOrDefault(x => x.UserNickName == request.UserNickName);
+
+            if (user == null)
             {
-                return BadRequest("Not registred user");
+                return NotFound("Not registred user");
             }
 
             if (!CheckPassword(request.Password, user.PasswordHash, user.PasswordSalt))
@@ -56,6 +75,18 @@ namespace Registration.Controllers
 
             string token = CreateToken(user);
             return Ok(token);
+        }
+
+        [HttpDelete("Delete")]
+        public async Task<ActionResult<string>> Delete(string nickName)
+        {
+            using (var context = _registrationContext)
+            {
+                context.RegistrUsers.Remove(context.RegistrUsers.FirstOrDefault(ru => ru.UserNickName == nickName));
+                _registrationContext.SaveChanges();
+            }
+
+            return Ok();
         }
 
         private string CreateToken(RegistrUser user)
